@@ -3,7 +3,7 @@ import random
 import subprocess
 from datetime import datetime, timedelta
 
-def get_positive_int(prompt, default=20):
+def get_positive_int(prompt, default=5):
     while True:
         try:
             user_input = input(f"{prompt} (default {default}): ")
