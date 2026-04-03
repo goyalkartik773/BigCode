@@ -1,78 +1,83 @@
 import os
-import random
 import subprocess
+import random
 from datetime import datetime, timedelta
 
-def get_positive_int(prompt, default=5):
-    while True:
-        try:
-            user_input = input(f"{prompt} (default {default}): ")
-            if not user_input.strip():
-                return default
-            value = int(user_input)
-            if value > 0:
-                return value
-            else:
-                print("Please enter a positive integer.")
-        except ValueError:
-            print("Invalid input. Please enter a valid integer.")
+# ------------------ CONFIG ------------------
+MAX_COMMITS_PER_DAY = 5   # control density
+DAYS_BACK = 365
+COMMIT_MESSAGE = "update"
+# --------------------------------------------
 
-def get_repo_path(prompt, default="."):
-    while True:
-        user_input = input(f"{prompt} (default current directory): ")
-        if not user_input.strip():
-            return default
-        if os.path.isdir(user_input):
-            return user_input
-        else:
-            print("Directory does not exist. Please enter a valid path.")
+def run_git_command(cmd, cwd, env=None):
+    result = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise Exception(f"Git command failed: {' '.join(cmd)}\n{result.stderr}")
+    return result
 
-def get_filename(prompt, default="data.txt"):
-    user_input = input(f"{prompt} (default {default}): ")
-    if not user_input.strip():
-        return default
-    return user_input
+def is_git_repo(path):
+    return os.path.isdir(os.path.join(path, ".git"))
 
-def random_date_in_last_year():
+def generate_commit_schedule(total_commits):
+    """Distribute commits across days instead of random clustering"""
     today = datetime.now()
-    start_date = today - timedelta(days=365)
-    random_days = random.randint(0, 364)
-    random_seconds = random.randint(0, 23*3600 + 3599)
-    commit_date = start_date + timedelta(days=random_days, seconds=random_seconds)
-    return commit_date
+    start = today - timedelta(days=DAYS_BACK)
 
-def make_commit(date, repo_path, filename, message="graph-greener!"):
+    schedule = {}
+
+    for _ in range(total_commits):
+        day_offset = random.randint(0, DAYS_BACK - 1)
+        day = (start + timedelta(days=day_offset)).date()
+
+        if day not in schedule:
+            schedule[day] = 0
+
+        if schedule[day] < MAX_COMMITS_PER_DAY:
+            schedule[day] += 1
+
+    return schedule
+
+def make_commit(repo_path, filename, commit_time):
     filepath = os.path.join(repo_path, filename)
+
     with open(filepath, "a") as f:
-        f.write(f"Commit at {date.isoformat()}\n")
-    subprocess.run(["git", "add", filename], cwd=repo_path)
+        f.write(f"{commit_time.isoformat()}\n")
+
+    run_git_command(["git", "add", filename], repo_path)
+
     env = os.environ.copy()
-    date_str = date.strftime("%Y-%m-%dT%H:%M:%S")
+    date_str = commit_time.strftime("%Y-%m-%dT%H:%M:%S")
+
     env["GIT_AUTHOR_DATE"] = date_str
     env["GIT_COMMITTER_DATE"] = date_str
-    subprocess.run(["git", "commit", "-m", message], cwd=repo_path, env=env)
+
+    run_git_command(["git", "commit", "-m", COMMIT_MESSAGE], repo_path, env)
 
 def main():
-    print("="*60)
-    print("🌱 Welcome to graph-greener - GitHub Contribution Graph Commit Generator 🌱")
-    print("="*60)
-    print("This tool will help you fill your GitHub contribution graph with custom commits.\n")
+    repo_path = input("Repo path (default .): ").strip() or "."
+    filename = input("Filename (default data.txt): ").strip() or "data.txt"
+    total_commits = int(input("Total commits: ").strip() or 50)
 
-    num_commits = get_positive_int("How many commits do you want to make", 20)
-    repo_path = get_repo_path("Enter the path to your local git repository", ".")
-    filename = get_filename("Enter the filename to modify for commits", "data.txt")
+    if not is_git_repo(repo_path):
+        print("❌ Not a git repository")
+        return
 
-    print(f"\nMaking {num_commits} commits in repo: {repo_path}\nModifying file: {filename}\n")
+    schedule = generate_commit_schedule(total_commits)
 
-    for i in range(num_commits):
-        commit_date = random_date_in_last_year()
-        print(f"[{i+1}/{num_commits}] Committing at {commit_date.strftime('%Y-%m-%d %H:%M:%S')}")
-        make_commit(commit_date, repo_path, filename)
+    print(f"\n📅 Commit distribution over {len(schedule)} days\n")
 
-    print("\nPushing commits to your remote repository...")
-    subprocess.run(["git", "push"], cwd=repo_path)
-    print("✅ All done! Check your GitHub contribution graph in a few minutes.\n")
-    print("Tip: Use a dedicated repository for best results. Happy coding!")
+    for day, count in sorted(schedule.items()):
+        for _ in range(count):
+            seconds = random.randint(0, 86399)
+            commit_time = datetime.combine(day, datetime.min.time()) + timedelta(seconds=seconds)
+
+            print(f"Committing on {commit_time}")
+            make_commit(repo_path, filename, commit_time)
+
+    print("\n🚀 Pushing...")
+    run_git_command(["git", "push"], repo_path)
+
+    print("✅ Done")
 
 if __name__ == "__main__":
     main()
